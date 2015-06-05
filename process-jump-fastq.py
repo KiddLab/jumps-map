@@ -86,7 +86,7 @@ def process_assembled(myData):
             print res['seq2']
         else:
             myData['numFail']  += 1
-            print res['align']
+#            print res['align']
         
             
             
@@ -94,26 +94,42 @@ def process_assembled(myData):
         if myData['numAssembled']  % 10000 == 0:
             print '\tProcesssed %i assembled seqs...' % (myData['numAssembled'])
         
-        if myData['numAssembled']  >= 10:
+        if myData['numAssembled']  >= 20:
             break
     fqFile.close()    
     myData['totReads'] = myData['numAssembled'] + myData['numDiscarded'] + myData['numNotAssem']    
 ###############################################################################
 def check_seq(fq,myData):
+    minScore = 49.0
     result = {}
     result['passChecks'] = False    
 
 #    alignRes = pairwise2.align.globalms(myData['linkerSeq'], fq['seq'], 2, -1, -.5, -.1)
     alignRes = pairwise2.align.globalms(myData['linkerSeq'], fq['seq'], 2, -1, -.5, -.2,penalize_end_gaps=False)
+    alignResLinkerRC = pairwise2.align.globalms(myData['linkerSeqRC'], fq['seq'], 2, -1, -.5, -.2,penalize_end_gaps=False)
+    
+    # compare scores
+    if alignRes[0][2] >= alignResLinkerRC[0][2]:
+        ls = myData['linkerSeq']
+    else:
+        ls = myData['linkerSeqRC']
+        alignRes = alignResLinkerRC
+        
+
+    result['align'] = alignRes
 
     if len(alignRes) != 1:
         # just take the first one
         print 'have mulitple potential alignments'
-        print alignRes
-        alignRes = alignRes[0:1]
-
-
-    result['align'] = alignRes
+        print fq['seq']
+        result['passChecks'] = False
+        return result
+        
+ 
+    # check score
+    if alignRes[0][2] < minScore:
+        result['passChecks'] = False
+        return result
 
     #figure out coordinates
     seq1ColToPos = []
@@ -143,17 +159,18 @@ def check_seq(fq,myData):
     linkerSeq = fq['seq'][seq2ColToPos[linkerColStart]-1:seq2ColToPos[linkerColEnd]]
     rightSeq = fq['seq'][seq2ColToPos[linkerColEnd]:]
 
+    # no longer needed -- since we are going with the score
     # check linker sequence length
-    if len(linkerSeq) != len(myData['linkerSeq']):
-        result['passChecks'] = False
-        return result
-    mismatch = 0
-    for i in range(len(linkerSeq)):
-        if linkerSeq[i] != myData['linkerSeq'][i]:
-            mismatch += 1
-    if mismatch > 1:
-        result['passChecks'] = False
-        return result
+#    if len(linkerSeq) != len(myData['linkerSeq']):
+#        result['passChecks'] = False
+#        return result
+#    mismatch = 0
+#    for i in range(len(linkerSeq)):
+#        if linkerSeq[i] != myData['linkerSeq'][i]:
+#            mismatch += 1
+#    if mismatch > 1:
+#        result['passChecks'] = False
+#        return result
     
     result['passChecks'] = True
     
@@ -214,6 +231,8 @@ myData['r2fq'] = options.r2fq
 myData['sampleName'] = options.sampleName
 myData['outDir'] = options.outDir
 myData['linkerSeq'] = 'CTGCTGTACCGTTCTCCGTACAGCAG'
+# rev of linker is also possible...
+myData['linkerSeqRC'] = genutils.revcomp(myData['linkerSeq'])
 
 
 print 'Processing %s' % myData['sampleName']
