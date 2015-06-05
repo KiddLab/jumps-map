@@ -178,12 +178,9 @@ def check_seq(fq,myData):
     rightSeqQual = fq['qual33Str'][seq2ColToPos[linkerColEnd]:]
     
     # need to reverse comp R1 due to structure of the library
-    # and R2 gets reverse comp as well
     leftSeq = genutils.revcomp(leftSeq)
     leftSeqQual = leftSeqQual[::-1]
 
-    rightSeq = genutils.revcomp(rightSeq)
-    rightSeqQual = rightSeqQual[::-1]
 
 
     
