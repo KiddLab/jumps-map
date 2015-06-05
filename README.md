@@ -7,6 +7,7 @@ See http://www.ncbi.nlm.nih.gov/pubmed/21473983 and http://www.ncbi.nlm.nih.gov/
 
 ## Required Components
 Python: genutils, fastqstats, Bio
+
 Other:
 Pear http://www.ncbi.nlm.nih.gov/pubmed/24142950  http://www.exelixis-lab.org/web/software/pear
 
