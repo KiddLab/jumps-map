@@ -11,6 +11,7 @@ from optparse import OptionParser
 
 ###############################################################################
 def run_pear(myData):
+    # PEAR aligns/merges overlapping read pairs, which is the case that we have here
     myData['pearBase'] = myData['outDir'] + myData['sampleName'] + '.pear'
 
     cmd = 'pear --nbase -f %s -r %s -o %s' % (myData['r1fq'],myData['r2fq'],myData['pearBase'])
@@ -70,13 +71,16 @@ def count_num_discarded(myData):
     fqFile.close()
 ###############################################################################
 def process_assembled(myData):     
-    
+    # take each read contig (from PEAR alignment) and search for the expected
+    # linker sequence.  If we find it, extract the r1 and r2 and process
+    # into separate files.  Takes of reverse complement of r1, and imposes
+    # min score on linker alignment.  Currently does not check for length of r1/r2
+    # but expect 27bp
+
     myData['newR1FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R1.fq.gz'
-    myData['newR2FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R2.fq.gz'
-    
+    myData['newR2FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R2.fq.gz'    
     outR1 = genutils.open_gzip_write(myData['newR1FileName'])
     outR2 = genutils.open_gzip_write(myData['newR2FileName'])
-    
     
     myData['numAssembled'] = 0
     myData['numOK'] = 0
@@ -95,25 +99,14 @@ def process_assembled(myData):
             name2 = name + ' 2'
             outR1.write('@%s\n%s\n+\n%s\n' % (name1,res['seq1'],res['seq1Qual']))
             outR2.write('@%s\n%s\n+\n%s\n' % (name2,res['seq2'],res['seq2Qual']))
-
-
-#            print myData['numAssembled']
-#            print '>%i_f' % myData['numAssembled']
-#            print res['seq1']
-#            print '>%i_r' % myData['numAssembled']
-#            print res['seq2']
         else:
             myData['numFail']  += 1
-#            print res['align']
-        
-            
-            
-        
-        if myData['numAssembled']  % 10000 == 0:
+
+        if myData['numAssembled']  % 25000 == 0:
             print '\tProcesssed %i assembled seqs...' % (myData['numAssembled'])
         
-        if myData['numAssembled']  >= 50:
-            break
+#        if myData['numAssembled']  >= 1000:
+#            break
     fqFile.close()    
     myData['totReads'] = myData['numAssembled'] + myData['numDiscarded'] + myData['numNotAssem']
     outR1.close()
@@ -124,24 +117,21 @@ def check_seq(fq,myData):
     result = {}
     result['passChecks'] = False    
 
-#    alignRes = pairwise2.align.globalms(myData['linkerSeq'], fq['seq'], 2, -1, -.5, -.1)
+    # do not know the alignment orientation, so check both and take best score
     alignRes = pairwise2.align.globalms(myData['linkerSeq'], fq['seq'], 2, -1, -.5, -.2,penalize_end_gaps=False)
-    alignResLinkerRC = pairwise2.align.globalms(myData['linkerSeqRC'], fq['seq'], 2, -1, -.5, -.2,penalize_end_gaps=False)
-    
+    alignResLinkerRC = pairwise2.align.globalms(myData['linkerSeqRC'], fq['seq'], 2, -1, -.5, -.2,penalize_end_gaps=False)    
     # compare scores
     if alignRes[0][2] >= alignResLinkerRC[0][2]:
         ls = myData['linkerSeq']
     else:
         ls = myData['linkerSeqRC']
-        alignRes = alignResLinkerRC
-        
-
+        alignRes = alignResLinkerRC        
     result['align'] = alignRes
 
+    # should only be one alignment.  Otherwise 
     if len(alignRes) != 1:
-        # just take the first one
-        print 'have mulitple potential alignments'
-        print fq['seq']
+#        print 'have mulitple potential alignments'
+#        print fq['seq']
         result['passChecks'] = False
         return result
         
@@ -152,6 +142,8 @@ def check_seq(fq,myData):
         return result
 
     #figure out coordinates
+    # go through keeping track of pos to go form column number to bp number
+    # do the sequence in 1 based coordinates
     seq1ColToPos = []
     current = 0
     for i in range(len(alignRes[0][0])):
@@ -174,31 +166,18 @@ def check_seq(fq,myData):
             linkerColEnd = i
     
 
-    
+    # extract sequences -1 because python 0 based, colToSeq 1 based, 
     leftSeq = fq['seq'][0:seq2ColToPos[linkerColStart]-1]
     linkerSeq = fq['seq'][seq2ColToPos[linkerColStart]-1:seq2ColToPos[linkerColEnd]]
-    rightSeq = fq['seq'][seq2ColToPos[linkerColEnd]:]
+    rightSeq = fq['seq'][seq2ColToPos[linkerColEnd]:]    
 
-    # no longer needed -- since we are going with the score
-    # check linker sequence length
-#    if len(linkerSeq) != len(myData['linkerSeq']):
-#        result['passChecks'] = False
-#        return result
-#    mismatch = 0
-#    for i in range(len(linkerSeq)):
-#        if linkerSeq[i] != myData['linkerSeq'][i]:
-#            mismatch += 1
-#    if mismatch > 1:
-#        result['passChecks'] = False
-#        return result
-    
-    result['passChecks'] = True
-    
+
+    result['passChecks'] = True    
     # passess, so take out the sequence and quals
     leftSeqQual = fq['qual33Str'][0:seq2ColToPos[linkerColStart]-1]
     rightSeqQual = fq['qual33Str'][seq2ColToPos[linkerColEnd]:]
     
-    # need to reverse r1
+    # need to reverse comp R1 due to structure of the library
     leftSeq = genutils.revcomp(leftSeq)
     leftSeqQual = leftSeqQual[::-1]
     
@@ -215,8 +194,11 @@ def check_seq(fq,myData):
 
 USAGE = """
 process-jump-fastq.py  --r1fq <read 1 fq.gz>  --r2fq <read 2 fq.gz>  --sample <name of sample>  --outdir <dir of output>
-                       
 
+    This script sets up reads for processing of Talkowski style jumping libraries.
+    Starts with paired end fastq.  Merges together reads,  searches for adapter sequence,
+    then splits out to new paired-end files suitable for mapping.
+                       
 
 """
 parser = OptionParser(USAGE)
@@ -251,7 +233,7 @@ myData['r2fq'] = options.r2fq
 myData['sampleName'] = options.sampleName
 myData['outDir'] = options.outDir
 myData['linkerSeq'] = 'CTGCTGTACCGTTCTCCGTACAGCAG'
-# rev of linker is also possible...
+# rev of linker is also possible, since do not know orietnation
 myData['linkerSeqRC'] = genutils.revcomp(myData['linkerSeq'])
 
 
@@ -263,8 +245,8 @@ print '%i reads were not assembled' % myData['numNotAssem']
 count_num_discarded(myData)
 print '%i reads were discarded' % myData['numDiscarded']
 
-
 process_assembled(myData)
 print '%i reads were assembled' % myData['numAssembled']
+print '%i assembled reads failed the check' % myData['numFail']
 print '%i total reads in original fastq' % myData['totReads']
 
