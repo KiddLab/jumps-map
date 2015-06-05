@@ -70,6 +70,14 @@ def count_num_discarded(myData):
     fqFile.close()
 ###############################################################################
 def process_assembled(myData):     
+    
+    myData['newR1FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R1.fq.gz'
+    myData['newR2FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R2.fq.gz'
+    
+    outR1 = genutils.open_gzip_write(myData['newR1FileName'])
+    outR2 = genutils.open_gzip_write(myData['newR2FileName'])
+    
+    
     myData['numAssembled'] = 0
     myData['numOK'] = 0
     myData['numFail'] = 0
@@ -81,9 +89,19 @@ def process_assembled(myData):
         res = check_seq(R1,myData)
         if res['passChecks'] is True:
             myData['numOK'] += 1
-            print myData['numAssembled']
-            print res['seq1']
-            print res['seq2']
+            name = R1['readName']
+            name = name.split()[0]
+            name1 = name + ' 1'
+            name2 = name + ' 2'
+            outR1.write('@%s\n%s\n+\n%s\n' % (name1,res['seq1'],res['seq1Qual']))
+            outR2.write('@%s\n%s\n+\n%s\n' % (name2,res['seq2'],res['seq2Qual']))
+
+
+#            print myData['numAssembled']
+#            print '>%i_f' % myData['numAssembled']
+#            print res['seq1']
+#            print '>%i_r' % myData['numAssembled']
+#            print res['seq2']
         else:
             myData['numFail']  += 1
 #            print res['align']
@@ -94,10 +112,12 @@ def process_assembled(myData):
         if myData['numAssembled']  % 10000 == 0:
             print '\tProcesssed %i assembled seqs...' % (myData['numAssembled'])
         
-        if myData['numAssembled']  >= 20:
+        if myData['numAssembled']  >= 50:
             break
     fqFile.close()    
-    myData['totReads'] = myData['numAssembled'] + myData['numDiscarded'] + myData['numNotAssem']    
+    myData['totReads'] = myData['numAssembled'] + myData['numDiscarded'] + myData['numNotAssem']
+    outR1.close()
+    outR2.close()    
 ###############################################################################
 def check_seq(fq,myData):
     minScore = 49.0
@@ -179,7 +199,7 @@ def check_seq(fq,myData):
     rightSeqQual = fq['qual33Str'][seq2ColToPos[linkerColEnd]:]
     
     # need to reverse r1
-    leftSeq = leftSeq[::-1]
+    leftSeq = genutils.revcomp(leftSeq)
     leftSeqQual = leftSeqQual[::-1]
     
     result['seq1'] = leftSeq
