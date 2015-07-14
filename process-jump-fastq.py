@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Jeff Kidd
 # process reads from miseq from a jump library, prepare for mapping
+# added read length test 07-10-2015
+
 import genutils
 import fastqstats
 import sys
@@ -74,17 +76,24 @@ def process_assembled(myData):
     # take each read contig (from PEAR alignment) and search for the expected
     # linker sequence.  If we find it, extract the r1 and r2 and process
     # into separate files.  Takes of reverse complement of r1, and imposes
-    # min score on linker alignment.  Currently does not check for length of r1/r2
-    # but expect 27bp
+    # min score on linker alignment.  Tests if reads are longer than 22 bp.  If not, they are
+    # written in the lenFail fastq files
 
     myData['newR1FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R1.fq.gz'
     myData['newR2FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R2.fq.gz'    
     outR1 = genutils.open_gzip_write(myData['newR1FileName'])
     outR2 = genutils.open_gzip_write(myData['newR2FileName'])
+
+    myData['lenFail_R1FileName'] = myData['outDir'] + myData['sampleName'] + '.lenFail.R1.fq.gz'
+    myData['lenFail_R2FileName'] = myData['outDir'] + myData['sampleName'] + '.lenFail.R2.fq.gz'    
+    lenFailR1 = genutils.open_gzip_write(myData['lenFail_R1FileName'])
+    lenFailR2 = genutils.open_gzip_write(myData['lenFail_R2FileName'])
     
     myData['numAssembled'] = 0
     myData['numOK'] = 0
     myData['numFail'] = 0
+    myData['lenFail'] = 0
+
     fqFile = genutils.open_gzip_read(myData['assembledFQ'])
     while True:
         R1 = fastqstats.get_next_seq_record(fqFile)
@@ -92,19 +101,30 @@ def process_assembled(myData):
         myData['numAssembled'] += 1
         res = check_seq(R1,myData)
         if res['passChecks'] is True:
-            myData['numOK'] += 1
-            name = R1['readName']
-            name = name.split()[0]
-            name1 = name + ' 1'
-            name2 = name + ' 2'
-            outR1.write('@%s\n%s\n+\n%s\n' % (name1,res['seq1'],res['seq1Qual']))
-            outR2.write('@%s\n%s\n+\n%s\n' % (name2,res['seq2'],res['seq2Qual']))
+            passLength = read_len_test(res)
+            if passLength is True:  
+                myData['numOK'] += 1 
+                name = R1['readName']
+                name = name.split()[0]
+                name1 = name + ' 1'
+                name2 = name + ' 2'
+                outR1.write('@%s\n%s\n+\n%s\n' % (name1,res['seq1'],res['seq1Qual']))
+                outR2.write('@%s\n%s\n+\n%s\n' % (name2,res['seq2'],res['seq2Qual']))
         else:
             myData['numFail']  += 1
 
         if myData['numAssembled']  % 25000 == 0:
             print '\tProcesssed %i assembled seqs...' % (myData['numAssembled'])
         
+        if res['passChecks'] is True and passLength is False:
+            myData['lenFail'] += 1
+            name = R1['readName']
+            name = name.split()[0]
+            name1 = name + ' 1'
+            name2 = name + ' 2'
+            lenFailR1.write('@%s\n%s\n+\n%s\n' % (name1,res['seq1'],res['seq1Qual']))           
+            lenFailR2.write('@%s\n%s\n+\n%s\n' % (name2,res['seq2'],res['seq2Qual']))   
+
 #        if myData['numAssembled']  >= 1000:
 #            break
     fqFile.close()    
@@ -146,7 +166,7 @@ def check_seq(fq,myData):
     # do the sequence in 1 based coordinates
     seq1ColToPos = []
     current = 0
-    for i in range(len(alignRes[0][0])):
+    for i in range(len(alignRes[0][0])): #[1,2,3,4], looking at alignment
         if alignRes[0][0][i] != '-':
             current += 1
         seq1ColToPos.append(current)
@@ -155,7 +175,7 @@ def check_seq(fq,myData):
     for i in range(len(alignRes[0][1])):
         if alignRes[0][1][i] != '-':
             current += 1
-        seq2ColToPos.append(current)
+        seq2ColToPos.append(current) 
 
     linkerColStart = -1
     linkerColEnd = -1
@@ -171,6 +191,8 @@ def check_seq(fq,myData):
     linkerSeq = fq['seq'][seq2ColToPos[linkerColStart]-1:seq2ColToPos[linkerColEnd]]
     rightSeq = fq['seq'][seq2ColToPos[linkerColEnd]:]    
 
+    
+    
 
     result['passChecks'] = True    
     # passess, so take out the sequence and quals
@@ -180,18 +202,24 @@ def check_seq(fq,myData):
     # need to reverse comp R1 due to structure of the library
     leftSeq = genutils.revcomp(leftSeq)
     leftSeqQual = leftSeqQual[::-1]
-
-
-
     
     result['seq1'] = leftSeq
     result['seq1Qual'] = leftSeqQual
     result['seq2'] = rightSeq
     result['seq2Qual'] = rightSeqQual
+
+    
+
     
     return result
 ###############################################################################
 
+#Counts the length of both reads, if either is shorter than 22 it fails this test
+
+def read_len_test(res):
+    readLen = len(res['seq1']) > 22 and len(res['seq2']) > 22 
+    #nCount = res['seq1'].count('N') < 22 and res['seq2'].count('N') < 22
+    return readLen
 
 ###############################################################################
 
@@ -251,5 +279,7 @@ print '%i reads were discarded' % myData['numDiscarded']
 process_assembled(myData)
 print '%i reads were assembled' % myData['numAssembled']
 print '%i assembled reads failed the check' % myData['numFail']
+print '%i assembled reads that passed the check but failed the length test (< 22bp)' % myData['lenFail']
 print '%i total reads in original fastq' % myData['totReads']
+
 
