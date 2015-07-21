@@ -217,7 +217,7 @@ def check_seq(fq,myData):
 #Counts the length of both reads, if either is shorter than 22 it fails this test
 
 def read_len_test(res):
-    readLen = len(res['seq1']) > 22 and len(res['seq2']) > 22 
+    readLen = len(res['seq1']) > 22 and len(res['seq2']) > 22 and len(res['seq1']) < 30 and len(res['seq2']) < 30 
     #nCount = res['seq1'].count('N') < 22 and res['seq2'].count('N') < 22
     return readLen
 
@@ -279,7 +279,7 @@ print '%i reads were discarded' % myData['numDiscarded']
 process_assembled(myData)
 print '%i reads were assembled' % myData['numAssembled']
 print '%i assembled reads failed the check' % myData['numFail']
-print '%i assembled reads that passed the check but failed the length test (< 22bp)' % myData['lenFail']
+print '%i assembled reads that passed the check but failed the length test (< 23bp or > 29)' % myData['lenFail']
 print '%i total reads in original fastq' % myData['totReads']
 
 
