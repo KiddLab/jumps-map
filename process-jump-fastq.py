@@ -4,7 +4,7 @@
 # added read length test 07-10-2015
 
 
-import fastqstats
+import signal
 import subprocess
 import sys
 from Bio import pairwise2
@@ -288,8 +288,6 @@ def check_seq(fq,myData):
     leftSeq = fq['seq'][0:seq2ColToPos[linkerColStart]-1]
     linkerSeq = fq['seq'][seq2ColToPos[linkerColStart]-1:seq2ColToPos[linkerColEnd]]
     rightSeq = fq['seq'][seq2ColToPos[linkerColEnd]:]    
-
-    
     
 
     result['passChecks'] = True    
