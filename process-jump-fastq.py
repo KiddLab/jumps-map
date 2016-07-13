@@ -3,14 +3,112 @@
 # process reads from miseq from a jump library, prepare for mapping
 # added read length test 07-10-2015
 
-import genutils
+
 import fastqstats
+import subprocess
 import sys
 from Bio import pairwise2
 import os
 from optparse import OptionParser
 
 
+###############################################################################
+# Helper function to run commands, handle return values
+def runCMD(cmd):
+    val = subprocess.Popen(cmd, shell=True).wait()
+    if val == 0:
+        pass
+    else:
+        print 'command failed'
+        print cmd
+        sys.exit(1)
+###############################################################################
+#####################################################################
+# some utility functions
+def open_gzip_read(fileName):
+    gc = 'gunzip -c ' + fileName
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # To deal with fact that might close file before reading all
+    try:
+        inFile = os.popen(gc, 'r')
+    except:
+        print "ERROR!! Couldn't open the file " + fileName + " using gunzip -c\n"
+        sys.exit(1)
+    return inFile
+#####################################################################
+def open_gzip_write(fileName):
+    try:
+        gc = 'gzip > ' + fileName
+        outFile = os.popen(gc, 'w')
+    except:
+        print "ERROR!! Couldn't open the output file " + fileName+ " (with gzip)\n"
+        sys.exit(1)
+    return outFile
+#####################################################################
+##############################################################################
+# Returns complement of a bp.  If not ACGT then return same char
+def complement(c):
+    if c == 'A':
+        return 'T'
+    if c == 'T':
+        return 'A'
+    if c == 'C':
+        return 'G'
+    if c == 'G':
+        return 'C'
+    if c == 'a':
+        return 't'
+    if c == 't':
+        return 'a'
+    if c == 'c':
+        return 'g'
+    if c == 'g':
+        return 'c'
+    # If not ACTGactg simply return same character
+    return c
+##############################################################################
+# Returns the reverse compliment of sequence 
+def revcomp(seq):
+    c = ''
+    seq = seq[::-1] #reverse
+    # Note, this good be greatly sped up using list operations
+    seq = [complement(i) for i in seq]
+    c = ''.join(seq)
+    return c
+##############################################################################
+#############################################################################
+# Takes an open fastq file and returns a dictionary of information about
+# the next sequence record.  Returns None if the end of the file
+# has been reached.  Assumes that PHRED quality is ord(i)-33, can use different offset if needed
+# The structure of the dictionary is:
+# seqName, seq, qualString, qualList
+def get_next_seq_record(myFile, int qoffSet = 33):
+    record = {}
+    record['readName'] = myFile.readline()
+    if record['readName'] == '':
+        return None
+    record['readName'] = record['readName'].rstrip()
+    if record['readName'][0] != '@':
+        print "ERROR!! In get_next_seq_record expect first char of '"+ record['readName'] +"' to be '@'"
+        sys.exit(1)
+    record['readName'] = record['readName'][1:]
+    record['seq'] = myFile.readline()
+    if record['seq'] == '':
+        print "ERROR!! In get_next_seq_record expect sequence line from fastq file"
+        sys.exit(1)
+    record['seq'] = record['seq'].rstrip()
+    plusLine = myFile.readline()
+    if plusLine == '' or plusLine[0] != '+':
+        print "ERROR!! In get_next_seq_record expect line from fastq file to begin with '+'"
+        sys.exit(1)
+    record['qualString'] = myFile.readline()
+    if record['qualString'] == '':
+        print "ERROR!! In get_next_seq_record expect qual line from fastq file"
+        sys.exit(1)
+    record['qualString'] = record['qualString'].rstrip()
+    lord = ord #local function pointer for speedup    
+    record['qualList'] = [lord(i) - qoffSet for i in record['qualString'] ]
+    record['qual33Str'] = ''.join([chr(i+33) for i in record['qualList']])
+    return record
 ###############################################################################
 def run_pear(myData):
     # PEAR aligns/merges overlapping read pairs, which is the case that we have here
@@ -33,41 +131,41 @@ def run_pear(myData):
         myData['notAssemR'] += '.gz'
     else:
         print cmd
-        genutils.runCMD(cmd)
+        runCMD(cmd)
         cmd = 'gzip ' + myData['assembledFQ']
         print cmd
-        genutils.runCMD(cmd)
+        runCMD(cmd)
         myData['assembledFQ'] += '.gz'
 
         cmd = 'gzip ' + myData['discardedFQ']
         print cmd
-        genutils.runCMD(cmd)
+        runCMD(cmd)
         myData['discardedFQ'] += '.gz'
 
         cmd = 'gzip ' + myData['notAssemF']
         print cmd
-        genutils.runCMD(cmd)
+        runCMD(cmd)
         myData['notAssemF'] += '.gz'
         
         cmd = 'gzip ' + myData['notAssemR']
         print cmd
-        genutils.runCMD(cmd)
+        runCMD(cmd)
         myData['notAssemR'] += '.gz'        
 ###############################################################################
 def count_num_not_assembled(myData):
     myData['numNotAssem'] = 0
-    fqFile = genutils.open_gzip_read(myData['notAssemF'])
+    fqFile = open_gzip_read(myData['notAssemF'])
     while True:
-        R1 = fastqstats.get_next_seq_record(fqFile)
+        R1 = get_next_seq_record(fqFile)
         if R1 is None: break    
         myData['numNotAssem'] += 1
     fqFile.close()
 ###############################################################################
 def count_num_discarded(myData):
     myData['numDiscarded'] = 0
-    fqFile = genutils.open_gzip_read(myData['discardedFQ'])
+    fqFile = open_gzip_read(myData['discardedFQ'])
     while True:
-        R1 = fastqstats.get_next_seq_record(fqFile)
+        R1 = get_next_seq_record(fqFile)
         if R1 is None: break    
         myData['numDiscarded'] += 1
     fqFile.close()
@@ -81,22 +179,22 @@ def process_assembled(myData):
 
     myData['newR1FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R1.fq.gz'
     myData['newR2FileName'] = myData['outDir'] + myData['sampleName'] + '.processed.R2.fq.gz'    
-    outR1 = genutils.open_gzip_write(myData['newR1FileName'])
-    outR2 = genutils.open_gzip_write(myData['newR2FileName'])
+    outR1 = open_gzip_write(myData['newR1FileName'])
+    outR2 = open_gzip_write(myData['newR2FileName'])
 
     myData['lenFail_R1FileName'] = myData['outDir'] + myData['sampleName'] + '.lenFail.R1.fq.gz'
     myData['lenFail_R2FileName'] = myData['outDir'] + myData['sampleName'] + '.lenFail.R2.fq.gz'    
-    lenFailR1 = genutils.open_gzip_write(myData['lenFail_R1FileName'])
-    lenFailR2 = genutils.open_gzip_write(myData['lenFail_R2FileName'])
+    lenFailR1 = open_gzip_write(myData['lenFail_R1FileName'])
+    lenFailR2 = open_gzip_write(myData['lenFail_R2FileName'])
     
     myData['numAssembled'] = 0
     myData['numOK'] = 0
     myData['numFail'] = 0
     myData['lenFail'] = 0
 
-    fqFile = genutils.open_gzip_read(myData['assembledFQ'])
+    fqFile = open_gzip_read(myData['assembledFQ'])
     while True:
-        R1 = fastqstats.get_next_seq_record(fqFile)
+        R1 = get_next_seq_record(fqFile)
         if R1 is None: break    
         myData['numAssembled'] += 1
         res = check_seq(R1,myData)
@@ -200,7 +298,7 @@ def check_seq(fq,myData):
     rightSeqQual = fq['qual33Str'][seq2ColToPos[linkerColEnd]:]
     
     # need to reverse comp R1 due to structure of the library
-    leftSeq = genutils.revcomp(leftSeq)
+    leftSeq = revcomp(leftSeq)
     leftSeqQual = leftSeqQual[::-1]
     
     result['seq1'] = leftSeq
@@ -265,7 +363,7 @@ myData['sampleName'] = options.sampleName
 myData['outDir'] = options.outDir
 myData['linkerSeq'] = 'CTGCTGTACCGTTCTCCGTACAGCAG'
 # rev of linker is also possible, since do not know orietnation
-myData['linkerSeqRC'] = genutils.revcomp(myData['linkerSeq'])
+myData['linkerSeqRC'] = revcomp(myData['linkerSeq'])
 
 
 print 'Processing %s' % myData['sampleName']
