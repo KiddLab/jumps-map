@@ -81,7 +81,7 @@ def revcomp(seq):
 # has been reached.  Assumes that PHRED quality is ord(i)-33, can use different offset if needed
 # The structure of the dictionary is:
 # seqName, seq, qualString, qualList
-def get_next_seq_record(myFile, int qoffSet = 33):
+def get_next_seq_record(myFile, qoffSet = 33):
     record = {}
     record['readName'] = myFile.readline()
     if record['readName'] == '':
@@ -305,20 +305,14 @@ def check_seq(fq,myData):
     result['seq1Qual'] = leftSeqQual
     result['seq2'] = rightSeq
     result['seq2Qual'] = rightSeqQual
-
-    
-
     
     return result
 ###############################################################################
-
 #Counts the length of both reads, if either is shorter than 22 it fails this test
-
 def read_len_test(res):
     readLen = len(res['seq1']) > 22 and len(res['seq2']) > 22 and len(res['seq1']) < 30 and len(res['seq2']) < 30 
     #nCount = res['seq1'].count('N') < 22 and res['seq2'].count('N') < 22
     return readLen
-
 ###############################################################################
 
 USAGE = """
@@ -362,7 +356,7 @@ myData['r2fq'] = options.r2fq
 myData['sampleName'] = options.sampleName
 myData['outDir'] = options.outDir
 myData['linkerSeq'] = 'CTGCTGTACCGTTCTCCGTACAGCAG'
-# rev of linker is also possible, since do not know orietnation
+# rev of linker is also possible, since do not know orientation
 myData['linkerSeqRC'] = revcomp(myData['linkerSeq'])
 
 
